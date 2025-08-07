@@ -1,0 +1,104 @@
+---
+- name: Install and configure Zabbix server
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Check if Zabbix repo already exists
+      stat:
+        path: /etc/apt/sources.list.d/zabbix.list
+      register: zabbix_repo_installed
+
+    - name: Add Zabbix repository if not present
+      apt:
+        deb: "{{ zabbix_repo }}"
+      when: not zabbix_repo_installed.stat.exists
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install required packages
+      apt:
+        name:
+          - apache2
+          - mariadb-server
+          - php
+          - php-mysql
+          - php-bcmath
+          - php-mbstring
+          - php-gd
+          - php-xml
+          - php-ldap
+          - php-pgsql
+          - php-snmp
+          - php-zip
+          - libapache2-mod-php
+          - zabbix-server-mysql
+          - zabbix-frontend-php
+          - zabbix-sql-scripts
+          - zabbix-agent
+        state: present
+
+    - name: Ensure MariaDB is running
+      service:
+        name: mariadb
+        state: started
+        enabled: true
+
+    - name: Create Zabbix database
+      mysql_db:
+        name: "{{ zabbix_db_name }}"
+        state: present
+        login_user: "{{ zabbix_db_root_user }}"
+        login_password: "{{ zabbix_db_root_pass }}"
+        login_host: 127.0.0.1
+
+    - name: Create Zabbix DB user
+      mysql_user:
+        name: "{{ zabbix_db_user }}"
+        password: "{{ zabbix_db_pass }}"
+        priv: "{{ zabbix_db_name }}.*:ALL"
+        host: "localhost"
+        state: present
+        login_user: "{{ zabbix_db_root_user }}"
+        login_password: "{{ zabbix_db_root_pass }}"
+        login_host: 127.0.0.1
+
+    - name: Import initial schema
+      shell: |
+        zcat /usr/share/zabbix-sql-scripts/mysql/server.sql.gz | mysql -u {{ zabbix_db_root_user }} -p'{{ zabbix_db_root_pass }}' {{ zabbix_db_name }}
+      args:
+        creates: "/var/lib/mysql/{{ zabbix_db_name }}/users.ibd"
+
+    - name: Configure Zabbix frontend config
+      template:
+        src: templates/zabbix.conf.php.j2
+        dest: /etc/zabbix/web/zabbix.conf.php
+        owner: root
+        group: www-data
+        mode: "0640"
+
+    - name: Enable Zabbix frontend configuration in Apache
+      command: a2enconf zabbix
+      notify: Reload Apache
+
+    - name: Enable and start Zabbix server
+      service:
+        name: zabbix-server
+        state: started
+        enabled: true
+
+    - name: Enable and start Zabbix agent
+      service:
+        name: zabbix-agent
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Reload Apache
+      service:
+        name: apache2
+        state: reloaded
