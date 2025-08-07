@@ -1,0 +1,12 @@
+zabbix_api_url: "http://10.20.40.12/zabbix/api_jsonrpc.php"
+zabbix_user: "Admin"
+zabbix_password:
+  "zabbix"
+
+  #zabbix_host: "linux-node-01"
+  #zabbix_ip: "10.20.40.12"
+
+zabbix_group: "Linux servers"
+zabbix_template: "Linux by Zabbix agent"
+# Optional — define only if different from zabbix_group
+new_host_group: "{{ zabbix_group }}"

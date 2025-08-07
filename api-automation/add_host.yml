@@ -1,0 +1,125 @@
+---
+- name: Add multiple hosts from CSV to Zabbix
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all.yml
+
+  vars:
+    csv_file: "hosts.csv"
+
+  tasks:
+    - name: Read hosts from CSV
+      community.general.read_csv:
+        path: "{{ csv_file }}"
+      register: csv_data
+
+    - name: Set list of hosts
+      set_fact:
+        hosts_to_add: "{{ csv_data.list }}"
+
+    - name: Authenticate with Zabbix API
+      uri:
+        url: "{{ zabbix_api_url }}"
+        method: POST
+        body_format: json
+        return_content: yes
+        body:
+          jsonrpc: "2.0"
+          method: "user.login"
+          params:
+            user: "{{ zabbix_user }}"
+            password: "{{ zabbix_password }}"
+          id: 1
+      register: login_response
+
+    - name: Set auth token
+      set_fact:
+        auth_token: "{{ login_response.json.result }}"
+
+    - name: Create host group (if it doesn't exist)
+      uri:
+        url: "{{ zabbix_api_url }}"
+        method: POST
+        body_format: json
+        return_content: yes
+        body:
+          jsonrpc: "2.0"
+          method: "hostgroup.create"
+          params:
+            name: "{{ zabbix_group }}"
+          auth: "{{ auth_token }}"
+          id: 2
+      register: group_create_response
+      failed_when: group_create_response.json.error is defined and
+        group_create_response.json.error.data is not search("already exists")
+      ignore_errors: true
+
+    - name: Get host group ID
+      uri:
+        url: "{{ zabbix_api_url }}"
+        method: POST
+        body_format: json
+        return_content: yes
+        body:
+          jsonrpc: "2.0"
+          method: "hostgroup.get"
+          params:
+            filter:
+              name: ["{{ zabbix_group }}"]
+          auth: "{{ auth_token }}"
+          id: 3
+      register: hostgroup_info
+
+    - name: Set group_id
+      set_fact:
+        group_id: "{{ hostgroup_info.json.result[0].groupid }}"
+
+    - name: Get template ID
+      uri:
+        url: "{{ zabbix_api_url }}"
+        method: POST
+        body_format: json
+        return_content: yes
+        body:
+          jsonrpc: "2.0"
+          method: "template.get"
+          params:
+            filter:
+              host: ["{{ zabbix_template }}"]
+          auth: "{{ auth_token }}"
+          id: 4
+      register: template_info
+
+    - name: Set template_id
+      set_fact:
+        template_id: "{{ template_info.json.result[0].templateid }}"
+
+    - name: Add each host from CSV
+      uri:
+        url: "{{ zabbix_api_url }}"
+        method: POST
+        body_format: json
+        return_content: yes
+        body:
+          jsonrpc: "2.0"
+          method: "host.create"
+          params:
+            host: "{{ item.name }}"
+            interfaces:
+              - type: 1
+                main: 1
+                useip: 1
+                ip: "{{ item.ip }}"
+                dns: ""
+                port: "10050"
+            groups:
+              - groupid: "{{ group_id }}"
+            templates:
+              - templateid: "{{ template_id }}"
+          auth: "{{ auth_token }}"
+          id: 5
+      loop: "{{ hosts_to_add }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: host_create_results

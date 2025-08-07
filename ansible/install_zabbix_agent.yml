@@ -1,0 +1,38 @@
+---
+- name: Install and configure Zabbix agent
+  hosts: zabbix_agents
+  become: yes
+
+  vars:
+    zabbix_server_ip: "10.20.40.12"
+
+  tasks:
+    - name: Install Zabbix agent
+      apt:
+        name: zabbix-agent
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install zabbix agent on RedHat
+      yum:
+        name: zabbix-agent
+        state: present
+      when: ansible_os_family == "RedHa"
+
+    - name: Configure Zabbix agent
+      lineinfile:
+        path: /etc/zabbix/zabbix_agentd.conf
+        regexp: "^Server="
+        line: "Server={{ zabbix_server_ip }}"
+
+    - name: Configure zabbix active server
+      lineinfile:
+        path: /etc/zabbix/zabbix_agentd.conf
+        regexp: "^ServerActive="
+        line: "ServerActive={{ zabbix_server_ip }}"
+
+    - name: Start and enable Zabbix agent
+      service:
+        name: zabbix-agent
+        state: started
+        enabled: yes
